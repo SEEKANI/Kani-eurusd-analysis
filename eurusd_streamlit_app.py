@@ -1,12 +1,11 @@
 """
-Multi-Pair Forex + Gold Educational Analyzer (Streamlit)
--------------------------------------------------------
-- Supports many major & minor forex pairs + Gold
-- Rule-based computerized signals
+Multi-Pair Forex + Gold Educational Analyzer
+--------------------------------------------
+- Many forex pairs + Gold
+- Rule-based BUY / SELL / NO SIGNAL
+- ENTRY, SL and TP ideas
 - Simple backtest
-- Strong risk disclaimers
-Educational use only. Not financial advice.
-You accept full responsibility for any trades.
+Educational only. You accept all risk.
 """
 
 import streamlit as st
@@ -17,7 +16,6 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore")
 
-# Popular pairs (Yahoo Finance symbols)
 PAIRS = {
     "EUR/USD": "EURUSD=X",
     "GBP/USD": "GBPUSD=X",
@@ -88,15 +86,15 @@ def add_indicators(df):
 
 def generate_signals(df):
     latest = df.iloc[-1]
-    price = latest["Close"]
-    sma50 = latest["SMA_50"]
-    sma100 = latest["SMA_100"]
-    sma200 = latest["SMA_200"]
-    rsi = latest["RSI"]
-    macd = latest["MACD"]
-    macd_signal = latest["MACD_Signal"]
-    macd_hist = latest["MACD_Hist"]
-    atr = latest["ATR"]
+    price = float(latest["Close"])
+    sma50 = float(latest["SMA_50"])
+    sma100 = float(latest["SMA_100"])
+    sma200 = float(latest["SMA_200"]) if not pd.isna(latest["SMA_200"]) else None
+    rsi = float(latest["RSI"])
+    macd = float(latest["MACD"])
+    macd_signal = float(latest["MACD_Signal"])
+    macd_hist = float(latest["MACD_Hist"])
+    atr = float(latest["ATR"])
 
     bullish_score = 0.0
     bearish_score = 0.0
@@ -117,7 +115,7 @@ def generate_signals(df):
         bearish_score += 1.0
         reasons.append("Price below 100-day SMA")
 
-    if not pd.isna(sma200):
+    if sma200 is not None:
         if price > sma200:
             bullish_score += 0.5
             reasons.append("Price above 200-day SMA")
@@ -153,21 +151,31 @@ def generate_signals(df):
 
     net = bullish_score - bearish_score
 
+    # Default values
+    direction = "NO CLEAR SIGNAL (RANGE)"
+    confidence = "Low"
+    entry = None
+    sl = None
+    tp = None
+    idea = "No clear directional bias – market is mixed / ranging"
+
     if net >= 2.0:
         direction = "BUY BIAS"
         confidence = "Moderate" if net >= 3.0 else "Low-Moderate"
-        stop_idea = round(sma50 - (1.5 * atr), 5)
-        idea = f"Observational BUY bias while price holds above {sma50:.5f}"
+        entry = round(price, 5)
+        sl = round(min(sma50, price) - (1.5 * atr), 5)
+        risk = entry - sl
+        tp = round(entry + (2.0 * risk), 5)          # 2R target
+        idea = f"Observational BUY idea while price holds above {sma50:.5f}"
+
     elif net <= -2.0:
         direction = "SELL BIAS"
         confidence = "Moderate" if net <= -3.0 else "Low-Moderate"
-        stop_idea = round(sma50 + (1.5 * atr), 5)
-        idea = f"Observational SELL bias while price holds below {sma50:.5f}"
-    else:
-        direction = "NO CLEAR SIGNAL (RANGE)"
-        confidence = "Low"
-        stop_idea = None
-        idea = "No clear directional bias – market is mixed / ranging"
+        entry = round(price, 5)
+        sl = round(max(sma50, price) + (1.5 * atr), 5)
+        risk = sl - entry
+        tp = round(entry - (2.0 * risk), 5)          # 2R target
+        idea = f"Observational SELL idea while price holds below {sma50:.5f}"
 
     return {
         "direction": direction,
@@ -179,11 +187,13 @@ def generate_signals(df):
         "warnings": warnings_list,
         "price": price,
         "idea": idea,
-        "stop_idea": stop_idea,
+        "entry": entry,
+        "sl": sl,
+        "tp": tp,
         "key_levels": {
-            "support_50sma": round(sma50, 5),
-            "resistance_100sma": round(sma100, 5),
-            "sma200": round(sma200, 5) if not pd.isna(sma200) else None
+            "sma50": round(sma50, 5),
+            "sma100": round(sma100, 5),
+            "sma200": round(sma200, 5) if sma200 else None
         },
         "rsi": round(rsi, 1),
         "atr": round(atr, 5)
@@ -215,19 +225,14 @@ def simple_backtest(df, forward_days=5):
         else:
             continue
 
-        results.append({
-            "side": side,
-            "correct": correct,
-            "pct_change": (change / current_price) * 100,
-        })
+        results.append({"side": side, "correct": correct})
 
     if not results:
         return None
 
     res_df = pd.DataFrame(results)
     total = len(res_df)
-    correct_count = res_df["correct"].sum()
-    accuracy = (correct_count / total) * 100 if total > 0 else 0
+    accuracy = (res_df["correct"].sum() / total) * 100
 
     buy = res_df[res_df["side"] == "BUY"]
     sell = res_df[res_df["side"] == "SELL"]
@@ -243,27 +248,26 @@ def simple_backtest(df, forward_days=5):
     }
 
 
-# ================= STREAMLIT UI =================
+# ================= UI =================
 st.set_page_config(page_title="Forex & Gold Signal Analyzer", page_icon="📊", layout="centered")
 
 st.title("Forex & Gold Educational Signal Analyzer")
-st.caption("Educational tool • Rule-based signals • You accept all risk")
+st.caption("Educational tool • Rule-based signals with ENTRY / SL / TP ideas • You accept all risk")
 
 with st.expander("⚠️ RISK DISCLAIMER – READ THIS", expanded=True):
     st.warning("""
 This tool is for **education only**.
 
-- It is NOT financial or trading advice.  
-- Signals are generated by fixed rules and can lose money.  
-- No signal guarantees profit.  
-- Forex and gold trading involve substantial risk of loss.  
-- You can lose more than your capital.  
-- You accept full responsibility for any trading decision.
+- NOT financial or trading advice.  
+- Signals and ENTRY/SL/TP levels are generated by fixed rules.  
+- They can and will lose money.  
+- No level is guaranteed.  
+- You accept full responsibility for any trade you take.
 """)
 
 st.subheader("1. Choose Market")
 selected_pair = st.selectbox("Select instrument", list(PAIRS.keys()))
-custom_symbol = st.text_input("Or type custom Yahoo symbol (optional)", placeholder="e.g. EURUSD=X or XAUUSD=X")
+custom_symbol = st.text_input("Or type custom Yahoo symbol (optional)", placeholder="e.g. EURUSD=X")
 
 symbol = custom_symbol.strip() if custom_symbol.strip() else PAIRS[selected_pair]
 
@@ -284,12 +288,13 @@ if st.button("Run Analysis & Get Signal", type="primary", use_container_width=Tr
                 signal = generate_signals(df_clean)
                 bt = simple_backtest(df_clean, forward_days)
 
-                st.subheader(f"Current Snapshot – {selected_pair if not custom_symbol else symbol}")
+                st.subheader(f"Snapshot – {selected_pair if not custom_symbol else symbol}")
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Price", f"{signal['price']:.5f}")
                 c2.metric("RSI", f"{signal['rsi']}")
-                c3.metric("ATR (pips)", f"{signal['atr']*10000:.0f}")
+                c3.metric("ATR", f"{signal['atr']*10000:.0f} pips")
 
+                # ===== SIGNAL + ENTRY / SL / TP =====
                 st.subheader("Computerized Signal")
                 if "BUY" in signal["direction"]:
                     st.success(f"**SIGNAL: {signal['direction']}**")
@@ -298,11 +303,16 @@ if st.button("Run Analysis & Get Signal", type="primary", use_container_width=Tr
                 else:
                     st.info(f"**SIGNAL: {signal['direction']}**")
 
-                st.write(f"**Confidence:** {signal['confidence']}")
-                st.write(f"**Net Score:** {signal['net_score']}")
+                st.write(f"**Confidence:** {signal['confidence']}  |  Net Score: {signal['net_score']}")
                 st.write(f"**Idea:** {signal['idea']}")
-                if signal["stop_idea"]:
-                    st.write(f"**Approx. invalidation idea:** {signal['stop_idea']}")
+
+                if signal["entry"] is not None:
+                    st.markdown("### Suggested Levels (Rule-based ideas only)")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("ENTRY", f"{signal['entry']:.5f}")
+                    col2.metric("STOP LOSS", f"{signal['sl']:.5f}")
+                    col3.metric("TAKE PROFIT", f"{signal['tp']:.5f}")
+                    st.caption("These are calculated ideas (Entry = current price, SL = 1.5×ATR from 50-SMA, TP = 2R). Not guaranteed.")
 
                 if signal["warnings"]:
                     for w in signal["warnings"]:
@@ -311,18 +321,17 @@ if st.button("Run Analysis & Get Signal", type="primary", use_container_width=Tr
                 with st.expander("Reasons & Key Levels"):
                     for r in signal["reasons"]:
                         st.write(f"• {r}")
-                    st.write(f"• 50 SMA: `{signal['key_levels']['support_50sma']}`")
-                    st.write(f"• 100 SMA: `{signal['key_levels']['resistance_100sma']}`")
+                    st.write(f"• 50 SMA: `{signal['key_levels']['sma50']}`")
+                    st.write(f"• 100 SMA: `{signal['key_levels']['sma100']}`")
                     if signal['key_levels']['sma200']:
                         st.write(f"• 200 SMA: `{signal['key_levels']['sma200']}`")
 
-                st.caption("Rule-based signal only. Can lose money. You accept the risk.")
+                st.caption("Rule-based signal + levels only. Can lose money. You accept the risk.")
 
                 if bt:
                     st.subheader(f"Simple Backtest ({forward_days} days)")
                     st.write(f"Signals tested: **{bt['total_signals']}** | Accuracy: **{bt['accuracy_pct']}%**")
                     st.write(f"BUY: {bt['buy_signals']} ({bt['buy_accuracy']}%)  |  SELL: {bt['sell_signals']} ({bt['sell_accuracy']}%)")
-                    st.caption("Backtest ignores costs and stops. Accuracy near 50% is common.")
 
                 st.subheader("Price Chart")
                 st.line_chart(df_clean[["Close", "SMA_50", "SMA_100"]].tail(150))
@@ -331,10 +340,10 @@ if st.button("Run Analysis & Get Signal", type="primary", use_container_width=Tr
 
         except Exception as e:
             st.error(f"Error: {e}")
-            st.info("Some pairs (especially exotics) may not have good free data.")
+            st.info("Some symbols may not have good free data.")
 
 else:
     st.info("Select a pair and tap **Run Analysis & Get Signal**")
 
 st.markdown("---")
-st.caption("Educational tool • Multiple pairs + Gold • You accept all trading risk")
+st.caption("Educational tool • ENTRY / SL / TP ideas included • You accept all trading risk")

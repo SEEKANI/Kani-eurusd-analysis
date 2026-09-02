@@ -41,7 +41,6 @@ def indicators(d):
     d["RSI"]=(100-(100/(1+g/l.replace(0,np.nan)))).fillna(100)
     tr=pd.concat([d.High-d.Low,(d.High-c.shift()).abs(),(d.Low-c.shift()).abs()],axis=1).max(axis=1)
     d["ATR"]=tr.rolling(10).mean()
-    d["PH"]=d.High.shift().rolling(20).max(); d["PL"]=d.Low.shift().rolling(20).min()
     up=d.High.diff(); dn=-d.Low.diff()
     pdm=np.where((up>dn)&(up>0),up,0.0); mdm=np.where((dn>up)&(dn>0),dn,0.0)
     tr14=tr.rolling(14).sum()
@@ -118,7 +117,7 @@ def yiza_strategy(d,daily):
     bias=yiza_bias_at(daily,x.name)
     if bias is None: return result("NO TRADE","Low",0,"Yiza Strategy",["Could not read the daily/weekly bias yet."],x)
     why=[f"Daily/weekly bias: {bias} only (higher-timeframe filter)."]
-    swept_low=p.Low<x.PL and x.Close>x.PL; swept_high=p.High>x.PH and x.Close<x.PH
+    swept_low=p.Low<x.SWL and x.Close>x.SWL; swept_high=p.High>x.SWH and x.Close<x.SWH
     side="NO TRADE"
     if bias=="BUY" and (swept_low or x.Close>x.SWH):
         side="BUY"; why.append("Sweep/rejection at support or break of structure confirms BUY.")
